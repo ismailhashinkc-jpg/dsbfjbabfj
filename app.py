@@ -1,212 +1,109 @@
-import os
-import io
-import base64
-from datetime import datetime
-
-from flask import Flask, render_template, redirect, url_for, flash, request
+from flask import Flask, render_template, redirect, url_for, request, flash
+from flask_sqlalchemy import SQLAlchemy
 from flask_wtf import FlaskForm
-from wtforms import StringField, PasswordField, SubmitField, BooleanField, TextAreaField
+from wtforms import StringField, PasswordField, BooleanField, SubmitField
 from wtforms.validators import DataRequired, Length
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text
-from sqlalchemy.orm import sessionmaker, declarative_base
 import bcrypt
-import pyotp
-import qrcode
 
-# ---------- Config ----------
-DATABASE_URL = os.environ.get('HASHI_DB') or 'sqlite:///hashi_zone.db'
-SECRET_KEY = os.environ.get('HASHI_SECRET_KEY') or 'change_this_secret_in_prod'
-ADMIN_USERNAME = os.environ.get('HASHI_ADMIN_USER') or 'hashi'
-ADMIN_PASSWORD_HASH = os.environ.get('HASHI_ADMIN_HASH')  # bcrypt hash string
-ADMIN_RAW_PASSWORD = os.environ.get('HASHI_ADMIN_PASS')  # raw password for dev
-AUTO_LOGIN_DEV = os.environ.get('HASHI_AUTO_LOGIN', 'false').lower() in ('1', 'true', 'yes')
-
-# ---------- App ----------
+# -------------------- Flask App --------------------
 app = Flask(__name__)
-app.config['SECRET_KEY'] = SECRET_KEY
+app.config['SECRET_KEY'] = 'your_super_secure_secret_key'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Rate limiter
-limiter = Limiter(get_remote_address, app=app, default_limits=["200 per day", "50 per hour"])
+# -------------------- Database --------------------
+db = SQLAlchemy(app)
 
-# Login manager
+# -------------------- Login Manager --------------------
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
+login_manager.login_message_category = 'info'
 
-# SQLAlchemy setup
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if DATABASE_URL.startswith('sqlite') else {})
-SessionLocal = sessionmaker(bind=engine)
-Base = declarative_base()
+# -------------------- Rate Limiter --------------------
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"]
+)
+limiter.init_app(app)
 
-# ---------- Models ----------
-class User(Base):
-    __tablename__ = 'users'
-    id = Column(Integer, primary_key=True)
-    username = Column(String(150), unique=True, nullable=False)
-    pw_hash = Column(String(200), nullable=False)
-    totp_secret = Column(String(100), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-class Content(Base):
-    __tablename__ = 'content'
-    id = Column(Integer, primary_key=True)
-    title = Column(String(200))
-    body = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-class ProxyEntry(Base):
-    __tablename__ = 'proxies'
-    id = Column(Integer, primary_key=True)
-    address = Column(String(200), nullable=False)
-    notes = Column(Text)
-    added_by = Column(String(150))
-    added_at = Column(DateTime, default=datetime.utcnow)
-
-Base.metadata.create_all(bind=engine)
-
-# ---------- Utilities ----------
-def get_db():
-    return SessionLocal()
-
-def hash_password(raw: str) -> str:
-    return bcrypt.hashpw(raw.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-
-def verify_password(raw: str, pw_hash: str) -> bool:
-    try:
-        return bcrypt.checkpw(raw.encode('utf-8'), pw_hash.encode('utf-8'))
-    except Exception:
-        return False
-
-def ensure_admin_user():
-    db = get_db()
-    admin = db.query(User).filter_by(username=ADMIN_USERNAME).first()
-    if admin:
-        db.close()
-        return
-    if ADMIN_PASSWORD_HASH:
-        pw_hash = ADMIN_PASSWORD_HASH
-    elif ADMIN_RAW_PASSWORD:
-        pw_hash = hash_password(ADMIN_RAW_PASSWORD)
-    else:
-        db.close()
-        raise RuntimeError("No admin password provided. Set HASHI_ADMIN_HASH or HASHI_ADMIN_PASS.")
-    admin = User(username=ADMIN_USERNAME, pw_hash=pw_hash)
-    db.add(admin)
-    db.commit()
-    db.close()
-
-# ---------- Flask-Login user ----------
-class AdminUser(UserMixin):
-    def __init__(self, id_, username):
-        self.id = str(id_)
-        self.username = username
+# -------------------- User Model --------------------
+class User(db.Model, UserMixin):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(150), unique=True, nullable=False)
+    password = db.Column(db.String(150), nullable=False)
 
 @login_manager.user_loader
 def load_user(user_id):
-    db = get_db()
-    u = db.query(User).filter_by(id=int(user_id)).first()
-    db.close()
-    if not u:
-        return None
-    return AdminUser(u.id, u.username)
+    return User.query.get(int(user_id))
 
-# ---------- Forms ----------
-class LoginForm(FlaskForm):
-    username = StringField('Username', validators=[DataRequired(), Length(max=150)])
+# -------------------- Forms --------------------
+class RegisterForm(FlaskForm):
+    username = StringField('Username', validators=[DataRequired(), Length(min=3, max=150)])
     password = PasswordField('Password', validators=[DataRequired(), Length(min=6)])
-    totp = StringField('2FA code (if enabled)', validators=[Length(max=10)])
-    remember = BooleanField('Remember me')
-    submit = SubmitField('Sign in')
+    submit = SubmitField('Register')
 
-class ContentForm(FlaskForm):
-    title = StringField('Title', validators=[DataRequired(), Length(max=200)])
-    body = TextAreaField('Body', validators=[DataRequired()])
-    submit = SubmitField('Save')
+class LoginForm(FlaskForm):
+    username = StringField('Username', validators=[DataRequired(), Length(min=3, max=150)])
+    password = PasswordField('Password', validators=[DataRequired(), Length(min=6)])
+    remember = BooleanField('Remember Me')
+    submit = SubmitField('Login')
 
-class ProxyForm(FlaskForm):
-    address = StringField('Proxy address (host:port)', validators=[DataRequired(), Length(max=200)])
-    notes = TextAreaField('Notes', validators=[Length(max=1000)])
-    submit = SubmitField('Add Proxy')
-
-# ---------- Routes ----------
-@app.before_first_request
-def setup():
-    try:
-        ensure_admin_user()
-    except RuntimeError as e:
-        app.logger.error(str(e))
-
+# -------------------- Routes --------------------
 @app.route('/')
-def index():
-    if AUTO_LOGIN_DEV:
-        db = get_db()
-        u = db.query(User).filter_by(username=ADMIN_USERNAME).first()
-        db.close()
-        if u:
-            login_user(AdminUser(u.id, u.username))
-            return redirect(url_for('dashboard'))
-    return render_template('index.html')
+def home():
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+    return render_template('home.html')
+
+@app.route('/register', methods=['GET', 'POST'])
+@limiter.limit("5 per minute")
+def register():
+    form = RegisterForm()
+    if form.validate_on_submit():
+        if User.query.filter_by(username=form.username.data).first():
+            flash('Username already exists! Choose another.', 'danger')
+        else:
+            hashed_password = bcrypt.hashpw(form.password.data.encode('utf-8'), bcrypt.gensalt())
+            new_user = User(username=form.username.data, password=hashed_password.decode('utf-8'))
+            db.session.add(new_user)
+            db.session.commit()
+            flash('Account created successfully! Please login.', 'success')
+            return redirect(url_for('login'))
+    return render_template('register.html', form=form)
 
 @app.route('/login', methods=['GET', 'POST'])
-@limiter.limit("6 per minute")
+@limiter.limit("10 per minute")
 def login():
     form = LoginForm()
     if form.validate_on_submit():
-        username = form.username.data.strip()
-        password = form.password.data
-        totp_code = form.totp.data.strip()
-        remember = form.remember.data
-
-        db = get_db()
-        user = db.query(User).filter_by(username=username).first()
-        db.close()
-
-        if not user or not verify_password(password, user.pw_hash):
-            flash("Invalid username or password", "danger")
-            return render_template('login.html', form=form)
-
-        if user.totp_secret:
-            if not totp_code:
-                flash("2FA code required", "warning")
-                return render_template('login.html', form=form)
-            totp = pyotp.TOTP(user.totp_secret)
-            if not totp.verify(totp_code, valid_window=1):
-                flash("Invalid 2FA code", "danger")
-                return render_template('login.html', form=form)
-
-        login_user(AdminUser(user.id, user.username), remember=remember)
-        flash(f"Welcome back, {user.username}.", "success")
-        return redirect(url_for('dashboard'))
+        user = User.query.filter_by(username=form.username.data).first()
+        if user and bcrypt.checkpw(form.password.data.encode('utf-8'), user.password.encode('utf-8')):
+            login_user(user, remember=form.remember.data)
+            flash(f'Welcome back, {current_user.username}!', 'success')
+            next_page = request.args.get('next')
+            return redirect(next_page) if next_page else redirect(url_for('dashboard'))
+        else:
+            flash('Login failed. Check your username and password.', 'danger')
     return render_template('login.html', form=form)
+
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    return render_template('dashboard.html', username=current_user.username)
 
 @app.route('/logout')
 @login_required
 def logout():
     logout_user()
-    flash("You have been logged out.", "info")
-    return redirect(url_for('index'))
+    flash('You have been logged out.', 'info')
+    return redirect(url_for('home'))
 
-@app.route('/dashboard')
-@login_required
-def dashboard():
-    db = get_db()
-    items = db.query(Content).order_by(Content.created_at.desc()).all()
-    proxies = db.query(ProxyEntry).order_by(ProxyEntry.added_at.desc()).all()
-    db.close()
-    return render_template('dashboard.html', items=items, proxies=proxies)
-
-# ---------- Add content & proxies routes omitted for brevity (same as your code) ----------
-
-# ---------- Run ----------
+# -------------------- Run App --------------------
 if __name__ == '__main__':
-    try:
-        ensure_admin_user()
-    except RuntimeError as e:
-        print("Startup error:", e)
-        raise
-
-    port = int(os.environ.get("PORT", 5000))  # <-- Dynamic port for Render
-    app.run(host='0.0.0.0', port=port, debug=False)
+    with app.app_context():
+        db.create_all()
+    app.run(host='0.0.0.0', port=10000)
