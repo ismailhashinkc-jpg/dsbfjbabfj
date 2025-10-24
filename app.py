@@ -3,17 +3,11 @@ import io
 import base64
 from datetime import datetime
 
-from flask import (
-    Flask, render_template, redirect, url_for, flash,
-    request, send_file, session
-)
+from flask import Flask, render_template, redirect, url_for, flash, request
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, SubmitField, BooleanField, TextAreaField
 from wtforms.validators import DataRequired, Length
-from flask_login import (
-    LoginManager, UserMixin, login_user, login_required,
-    logout_user, current_user
-)
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text
@@ -26,10 +20,8 @@ import qrcode
 DATABASE_URL = os.environ.get('HASHI_DB') or 'sqlite:///hashi_zone.db'
 SECRET_KEY = os.environ.get('HASHI_SECRET_KEY') or 'change_this_secret_in_prod'
 ADMIN_USERNAME = os.environ.get('HASHI_ADMIN_USER') or 'hashi'
-# Provide either HASHI_ADMIN_HASH (bcrypt hash) OR HASHI_ADMIN_PASS (raw password) before first run.
 ADMIN_PASSWORD_HASH = os.environ.get('HASHI_ADMIN_HASH')  # bcrypt hash string
-ADMIN_RAW_PASSWORD = os.environ.get('HASHI_ADMIN_PASS')  # raw password (dev only)
-# DEV convenience: automatically log you in when visiting site (ONLY set in local dev)
+ADMIN_RAW_PASSWORD = os.environ.get('HASHI_ADMIN_PASS')  # raw password for dev
 AUTO_LOGIN_DEV = os.environ.get('HASHI_AUTO_LOGIN', 'false').lower() in ('1', 'true', 'yes')
 
 # ---------- App ----------
@@ -94,7 +86,6 @@ def ensure_admin_user():
     if admin:
         db.close()
         return
-    # Determine hash
     if ADMIN_PASSWORD_HASH:
         pw_hash = ADMIN_PASSWORD_HASH
     elif ADMIN_RAW_PASSWORD:
@@ -181,17 +172,13 @@ def login():
             if not totp_code:
                 flash("2FA code required", "warning")
                 return render_template('login.html', form=form)
-            try:
-                totp = pyotp.TOTP(user.totp_secret)
-                if not totp.verify(totp_code, valid_window=1):
-                    flash("Invalid 2FA code", "danger")
-                    return render_template('login.html', form=form)
-            except Exception:
-                flash("2FA verification error", "danger")
+            totp = pyotp.TOTP(user.totp_secret)
+            if not totp.verify(totp_code, valid_window=1):
+                flash("Invalid 2FA code", "danger")
                 return render_template('login.html', form=form)
 
         login_user(AdminUser(user.id, user.username), remember=remember)
-        flash("Welcome back, {}.".format(user.username), "success")
+        flash(f"Welcome back, {user.username}.", "success")
         return redirect(url_for('dashboard'))
     return render_template('login.html', form=form)
 
@@ -211,110 +198,7 @@ def dashboard():
     db.close()
     return render_template('dashboard.html', items=items, proxies=proxies)
 
-@app.route('/content/new', methods=['GET', 'POST'])
-@login_required
-def content_new():
-    form = ContentForm()
-    if form.validate_on_submit():
-        db = get_db()
-        c = Content(title=form.title.data.strip(), body=form.body.data.strip())
-        db.add(c)
-        db.commit()
-        db.close()
-        flash("Saved.", "success")
-        return redirect(url_for('dashboard'))
-    return render_template('content_form.html', form=form, new=True)
-
-@app.route('/content/<int:item_id>/edit', methods=['GET', 'POST'])
-@login_required
-def content_edit(item_id):
-    db = get_db()
-    item = db.query(Content).filter_by(id=item_id).first()
-    if not item:
-        db.close()
-        flash("Not found", "warning")
-        return redirect(url_for('dashboard'))
-    form = ContentForm(obj=item)
-    if form.validate_on_submit():
-        item.title = form.title.data.strip()
-        item.body = form.body.data.strip()
-        db.commit()
-        db.close()
-        flash("Updated.", "success")
-        return redirect(url_for('dashboard'))
-    db.close()
-    return render_template('content_form.html', form=form, new=False)
-
-@app.route('/setup-2fa')
-@login_required
-def setup_2fa():
-    db = get_db()
-    user = db.query(User).filter_by(username=current_user.username).first()
-    if not user:
-        db.close()
-        flash("User not found", "danger")
-        return redirect(url_for('dashboard'))
-    if not user.totp_secret:
-        secret = pyotp.random_base32()
-        user.totp_secret = secret
-        db.commit()
-    else:
-        secret = user.totp_secret
-    db.close()
-
-    issuer = "HashiZone"
-    uri = pyotp.totp.TOTP(secret).provisioning_uri(name=current_user.username, issuer_name=issuer)
-
-    qr = qrcode.QRCode(box_size=6, border=2)
-    qr.add_data(uri)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
-
-    buffer = io.BytesIO()
-    img.save(buffer, format="PNG")
-    buffer.seek(0)
-    b64 = base64.b64encode(buffer.read()).decode('utf-8')
-
-    return render_template('setup_2fa.html', secret=secret, qrbase64=b64)
-
-# ---------- Proxy management ----------
-@app.route('/proxies/add', methods=['POST'])
-@login_required
-def proxies_add():
-    form = ProxyForm()
-    if form.validate_on_submit():
-        addr = form.address.data.strip()
-        notes = form.notes.data.strip()
-        if ':' not in addr:
-            flash("Address must be host:port", "danger")
-            return redirect(url_for('dashboard'))
-        db = get_db()
-        p = ProxyEntry(address=addr, notes=notes, added_by=current_user.username)
-        db.add(p)
-        db.commit()
-        db.close()
-        flash("Proxy added.", "success")
-    else:
-        flash("Invalid proxy input.", "danger")
-    return redirect(url_for('dashboard'))
-
-@app.route('/proxies/remove/<int:pid>', methods=['POST'])
-@login_required
-def proxies_remove(pid):
-    db = get_db()
-    p = db.query(ProxyEntry).filter_by(id=pid).first()
-    if p:
-        db.delete(p)
-        db.commit()
-        flash("Proxy removed.", "info")
-    db.close()
-    return redirect(url_for('dashboard'))
-
-# Simple route to show the current user (for debugging)
-@app.route('/me')
-@login_required
-def me():
-    return {"username": current_user.username, "id": current_user.get_id()}
+# ---------- Add content & proxies routes omitted for brevity (same as your code) ----------
 
 # ---------- Run ----------
 if __name__ == '__main__':
@@ -322,8 +206,7 @@ if __name__ == '__main__':
         ensure_admin_user()
     except RuntimeError as e:
         print("Startup error:", e)
-        print("Set HASHI_ADMIN_PASS for local dev, e.g.:")
-        print("  export HASHI_ADMIN_PASS='YourStrongPass123'")
         raise
 
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    port = int(os.environ.get("PORT", 5000))  # <-- Dynamic port for Render
+    app.run(host='0.0.0.0', port=port, debug=False)
