@@ -4,7 +4,7 @@ FROM python:3.11-slim
 # Set workdir
 WORKDIR /app
 
-# System dependencies
+# System deps (for pillow/qrcode/sqlalchemy/bcrypt)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libssl-dev \
@@ -16,16 +16,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy project
 COPY . /app
 
-# Create venv and add to PATH
+# Create virtual environment and add to PATH
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Upgrade pip
+# Upgrade pip and install dependencies
 RUN pip install --upgrade pip
-
-# Install requirements with compatibility fixes
 RUN pip install -r requirements.txt
-RUN pip install "Werkzeug<3" "Flask-WTF>=1.1.1"
 
 # Create writable directory for database
 RUN mkdir -p /data
@@ -35,8 +32,8 @@ VOLUME ["/data"]
 ENV HASHI_DB="sqlite:////data/hashi_zone.db"
 ENV FLASK_ENV=production
 
-# Expose port 5000
+# Expose port
 EXPOSE 5000
 
-# Start Gunicorn
+# Start app with gunicorn
 CMD ["gunicorn", "-b", "0.0.0.0:5000", "app:app", "--workers", "3", "--threads", "2"]
