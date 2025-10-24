@@ -1,10 +1,10 @@
-# Dockerfile for Hashi Zone Flask app
+# Use official slim Python image
 FROM python:3.11-slim
 
-# Set workdir
+# Set working directory
 WORKDIR /app
 
-# System deps (for pillow/qrcode/sqlalchemy/bcrypt)
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libssl-dev \
@@ -13,10 +13,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy project
+# Copy project files
 COPY . /app
 
-# Create virtual environment and add to PATH
+# Create virtual environment
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
@@ -24,7 +24,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
 
-# Create writable directory for database
+# Create writable directory for SQLite database
 RUN mkdir -p /data
 VOLUME ["/data"]
 
@@ -32,8 +32,9 @@ VOLUME ["/data"]
 ENV HASHI_DB="sqlite:////data/hashi_zone.db"
 ENV FLASK_ENV=production
 
-# Expose port
-EXPOSE 5000
+# Expose the port that Render uses
+ENV PORT=10000
+EXPOSE $PORT
 
-# Start app with gunicorn
-CMD ["gunicorn", "-b", "0.0.0.0:5000", "app:app", "--workers", "3", "--threads", "2"]
+# Run the app with Gunicorn
+CMD ["gunicorn", "-b", "0.0.0.0:$PORT", "app:app", "--workers", "3", "--threads", "2"]
