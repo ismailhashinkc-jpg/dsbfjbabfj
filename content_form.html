@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Content — Hashi Zone{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>{% if new %}New{% else %}Edit{% endif %} content</h2>
+  <form method="post">
+    {{ form.csrf_token }}
+    <label>{{ form.title.label }}{{ form.title(class_="input", size=60) }}</label>
+    <label>{{ form.body.label }}{{ form.body(class_="input", rows=8) }}</label>
+    <div class="actions">
+      {{ form.submit(class_="btn primary") }}
+      <a class="btn" href="{{ url_for('dashboard') }}">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

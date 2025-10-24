@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Setup 2FA — Hashi Zone{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>2-Factor Setup</h2>
+  <p>Scan this QR code with your authenticator (Google Authenticator, Authy, etc.) or enter the secret manually.</p>
+  <div class="qr">
+    <img src="data:image/png;base64,{{ qrbase64 }}" alt="QR code">
+  </div>
+  <p class="muted small">Secret: <code>{{ secret }}</code></p>
+  <p class="muted">After scanning, log out and log in using your password and the 6-digit code from your authenticator app.</p>
+</div>
+{% endblock %}

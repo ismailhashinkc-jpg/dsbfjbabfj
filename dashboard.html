@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Hashi Zone{% endblock %}
+{% block content %}
+<div class="grid">
+  <section class="panel">
+    <h3>Welcome, {{ current_user.username }}</h3>
+    <p class="muted">This is your green & black dashboard. Add content below.</p>
+    <a class="btn" href="{{ url_for('content_new') }}">New content</a>
+  </section>
+
+  <section class="panel wide">
+    <h3>Content</h3>
+    {% if items %}
+      <ul class="items">
+        {% for it in items %}
+          <li>
+            <div class="item-title">{{ it.title }}</div>
+            <div class="item-meta">{{ it.created_at.strftime('%Y-%m-%d %H:%M') }}</div>
+            <div class="item-body">{{ it.body }}</div>
+            <a class="link" href="{{ url_for('content_edit', item_id=it.id) }}">Edit</a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No content yet — create something.</p>
+    {% endif %}
+
+    <hr style="border-color: rgba(255,255,255,0.03); margin:18px 0">
+
+    <h3>Proxy Manager</h3>
+    <form method="post" action="{{ url_for('proxies_add') }}">
+      {{ csrf_token() }}
+      <label>Proxy address (host:port)
+        <input class="input" name="address" type="text" required placeholder="1.2.3.4:8080">
+      </label>
+      <label>Notes
+        <textarea class="input" name="notes" rows="3"></textarea>
+      </label>
+      <div class="actions" style="margin-top:8px">
+        <button class="btn primary" type="submit">Add Proxy</button>
+      </div>
+    </form>
+
+    {% if proxies %}
+      <table style="width:100%; margin-top:12px; border-collapse:collapse">
+        <thead>
+          <tr style="text-align:left; color:var(--muted)">
+            <th>Address</th><th>Notes</th><th>Added by</th><th>Added at</th><th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in proxies %}
+            <tr style="border-top:1px solid rgba(255,255,255,0.02)">
+              <td>{{ p.address }}</td>
+              <td style="max-width:360px">{{ p.notes }}</td>
+              <td>{{ p.added_by }}</td>
+              <td>{{ p.added_at.strftime('%Y-%m-%d %H:%M') }}</td>
+              <td>
+                <form method="post" action="{{ url_for('proxies_remove', pid=p.id) }}" style="display:inline">
+                  {{ csrf_token() }}
+                  <button class="btn" type="submit">Remove</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted">No proxies yet.</p>
+    {% endif %}
+
+  </section>
+</div>
+{% endblock %}

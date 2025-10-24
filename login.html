@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Login — Hashi Zone{% endblock %}
+{% block content %}
+<div class="card login-card">
+  <h2>Sign in</h2>
+  <form method="post">
+    {{ form.csrf_token }}
+    <label>{{ form.username.label }}{{ form.username(size=30, class_="input") }}</label>
+    <label>{{ form.password.label }}{{ form.password(class_="input") }}</label>
+    <label>{{ form.totp.label }} (optional){{ form.totp(class_="input") }}</label>
+    <div class="row">
+      {{ form.remember() }} {{ form.remember.label }}
+    </div>
+    <div class="actions">
+      {{ form.submit(class_="btn primary") }}
+    </div>
+  </form>
+  <p class="muted small">If 2FA is enabled for the admin account, enter your authenticator code. To set up 2FA go to Dashboard → Setup 2FA after login.</p>
+</div>
+{% endblock %}

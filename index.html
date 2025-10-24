@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Welcome — Hashi Zone{% endblock %}
+{% block content %}
+<div class="hero">
+  <h1>Welcome to Hashi Zone</h1>
+  <p class="muted">Secure admin portal. Sign in to continue.</p>
+  <a class="cta" href="{{ url_for('login') }}">Sign in</a>
+</div>
+{% endblock %}
